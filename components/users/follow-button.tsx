@@ -31,26 +31,22 @@ export default function FollowButton({
 
 			if (!user) throw new Error("Not authenticated");
 
-			if (isFollowing) {
-				// Unfollow
-				const { error } = await supabase
-					.from("follows")
-					.delete()
-					.eq("follower_id", user.id)
-					.eq("following_id", userId);
-
-				if (error) throw error;
-				setIsFollowing(false);
-			} else {
-				// Follow
-				const { error } = await supabase.from("follows").insert({
+			const response = await fetch("/api/follows", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
 					follower_id: user.id,
 					following_id: userId,
-				});
+					is_following: isFollowing,
+				}),
+			});
 
-				if (error) throw error;
-				setIsFollowing(true);
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(errorData.error || "Failed to toggle follow");
 			}
+
+			setIsFollowing(!isFollowing);
 
 			const duration = performance.now() - startTime;
 

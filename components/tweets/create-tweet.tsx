@@ -29,12 +29,19 @@ export default function CreateTweet() {
 
 			if (!user) throw new Error("Not authenticated");
 
-			const { error } = await supabase.from("tweets").insert({
-				content: content.trim(),
-				user_id: user.id,
+			const response = await fetch("/api/tweets", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					content: content.trim(),
+					user_id: user.id,
+				}),
 			});
 
-			if (error) throw error;
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(errorData.error || "Failed to create tweet");
+			}
 
 			const duration = performance.now() - startTime;
 
