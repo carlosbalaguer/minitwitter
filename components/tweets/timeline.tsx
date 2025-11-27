@@ -46,6 +46,8 @@ export default async function Timeline({ filter = "all" }: TimelineProps) {
 		);
 	}
 
+	const isCached = queryTime < 100; // Heuristic: if < 100ms, likely cached
+
 	return (
 		<div>
 			{/* Performance indicator */}
@@ -55,6 +57,11 @@ export default async function Timeline({ filter = "all" }: TimelineProps) {
 					{filter === "following" && (
 						<span className="ml-2 text-green-600 font-medium">
 							(Pre-computed ✨)
+						</span>
+					)}
+					{isCached && (
+						<span className="ml-2 text-blue-600 font-medium">
+							(Cached 🚀)
 						</span>
 					)}
 				</div>
