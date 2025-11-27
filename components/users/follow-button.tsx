@@ -22,6 +22,8 @@ export default function FollowButton({
 	const handleToggleFollow = async () => {
 		setLoading(true);
 
+		const startTime = performance.now();
+
 		try {
 			const {
 				data: { user },
@@ -49,6 +51,21 @@ export default function FollowButton({
 				if (error) throw error;
 				setIsFollowing(true);
 			}
+
+			const duration = performance.now() - startTime;
+
+			// Send metric
+			fetch("/api/metrics", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					metric: `client.follow.${
+						isFollowing ? "unfollow" : "follow"
+					}`,
+					duration,
+					timestamp: new Date().toISOString(),
+				}),
+			}).catch(console.error);
 
 			router.refresh();
 		} catch (error: any) {

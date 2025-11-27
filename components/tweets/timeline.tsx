@@ -1,3 +1,4 @@
+import { getTimeline } from "@/lib/supabase/queries";
 import { createClient } from "@/lib/supabase/server";
 import { TweetWithProfile } from "@/types/database.types";
 import TweetCard from "./tweet-card";
@@ -15,30 +16,18 @@ export default async function Timeline({ filter = "all" }: TimelineProps) {
 
 	if (!user) return null;
 
-	let query = supabase
-		.from("tweets")
-		.select(
-			`
-      *,
-      profiles (*)
-    `
-		)
-		.order("created_at", { ascending: false });
+	const startTime = Date.now();
 
-	if (filter === "following") {
-		const { data: followingData } = await supabase
-			.from("follows")
-			.select("following_id")
-			.eq("follower_id", user.id);
+	let tweets: any[] = [];
+	let error = null;
 
-		const followingIds = followingData?.map((f) => f.following_id) || [];
-
-		followingIds.push(user.id);
-
-		query = query.in("user_id", followingIds);
+	try {
+		tweets = await getTimeline(supabase, user.id, filter);
+	} catch (e: any) {
+		error = e;
 	}
 
-	const { data: tweets, error } = await query.limit(50);
+	const queryTime = Date.now() - startTime;
 
 	if (error) {
 		console.error("Error fetching tweets:", error);
@@ -59,6 +48,13 @@ export default async function Timeline({ filter = "all" }: TimelineProps) {
 
 	return (
 		<div>
+			{/* Performance indicator (solo en dev) */}
+			{process.env.NODE_ENV === "development" && (
+				<div className="mb-4 p-2 bg-gray-100 rounded text-xs text-gray-600">
+					⚡ Query time: {queryTime}ms | Tweets: {tweets.length}
+				</div>
+			)}
+
 			{tweets.map((tweet) => (
 				<TweetCard key={tweet.id} tweet={tweet as TweetWithProfile} />
 			))}

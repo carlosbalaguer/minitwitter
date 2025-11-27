@@ -20,6 +20,8 @@ export default function CreateTweet() {
 		setLoading(true);
 		setError(null);
 
+		const startTime = performance.now();
+
 		try {
 			const {
 				data: { user },
@@ -33,6 +35,19 @@ export default function CreateTweet() {
 			});
 
 			if (error) throw error;
+
+			const duration = performance.now() - startTime;
+
+			// Send metric
+			fetch("/api/metrics", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					metric: "client.tweet.create",
+					duration,
+					timestamp: new Date().toISOString(),
+				}),
+			}).catch(console.error);
 
 			setContent("");
 			router.refresh();
