@@ -44,12 +44,22 @@ export async function getTimeline(
 		const dbStart = performance.now();
 		console.log(`💾 Cache MISS - fetching from DB...`);
 
-		// Cache miss - fetch from database
 		let tweets: any[] = [];
 
 		if (filter === "following") {
-			// Use pre-computed timeline (FAST!)
-			let query = supabase
+			const { data: followedCelebrities } = await supabase
+				.from("follows")
+				.select(
+					"following_id, profiles!follows_following_id_fkey(is_celebrity)"
+				)
+				.eq("follower_id", userId);
+
+			const celebrityIds =
+				followedCelebrities
+					?.filter((f: any) => f.profiles?.is_celebrity)
+					?.map((f: any) => f.following_id) || [];
+
+			let timelineQuery = supabase
 				.from("timelines")
 				.select(
 					`
@@ -65,37 +75,79 @@ export async function getTimeline(
               username,
               full_name,
               avatar_url,
-              bio
+              bio,
+              is_celebrity
             )
           )
         `
 				)
 				.eq("user_id", userId)
-				.order("created_at", { ascending: false })
-				.limit(limit);
+				.order("created_at", { ascending: false });
 
-			if (cursor) {
-				query = query.lt("created_at", cursor);
+			if (cursor) timelineQuery = timelineQuery.lt("created_at", cursor);
+
+			const { data: timelineTweets } = await timelineQuery.limit(limit);
+
+			let celebrityTweets: any[] = [];
+			if (celebrityIds.length > 0) {
+				let celebrityQuery = supabase
+					.from("tweets")
+					.select(
+						`
+            *,
+            profiles (*)
+          `
+					)
+					.in("user_id", celebrityIds)
+					.order("created_at", { ascending: false });
+
+				if (cursor) {
+					celebrityQuery = celebrityQuery.lt("created_at", cursor);
+				}
+
+				const { data } = await celebrityQuery.limit(limit);
+				celebrityTweets = data || [];
 			}
 
-			const { data, error } = await query;
-
-			if (error) throw error;
-
-			tweets =
-				data
+			const timelineTweetsFormatted =
+				timelineTweets
 					?.map((item: any) => {
 						if (!item.tweets) return null;
-
 						return {
 							id: item.tweets.id,
 							content: item.tweets.content,
 							created_at: item.tweets.created_at,
 							user_id: item.tweets.user_id,
 							profiles: item.tweets.profiles,
+							source: "precomputed", // para debugging
 						};
 					})
 					.filter((tweet: any) => tweet !== null) || [];
+
+			const celebrityTweetsFormatted = celebrityTweets.map((tweet) => ({
+				...tweet,
+				source: "celebrity", // para debugging
+			}));
+
+			const allTweets = [
+				...timelineTweetsFormatted,
+				...celebrityTweetsFormatted,
+			];
+
+			const uniqueTweetsMap = new Map();
+			allTweets.forEach((tweet) => {
+				if (!uniqueTweetsMap.has(tweet.id)) {
+					uniqueTweetsMap.set(tweet.id, tweet);
+				}
+			});
+
+			tweets = Array.from(uniqueTweetsMap.values())
+				.sort(
+					(a, b) =>
+						new Date(b.created_at).getTime() -
+						new Date(a.created_at).getTime()
+				)
+				.slice(0, limit);
 		} else {
 			let query = supabase
 				.from("tweets")
@@ -120,7 +172,6 @@ export async function getTimeline(
 
 		const dbTime = performance.now() - dbStart;
 
-		// Store in cache
 		if (shouldCache) {
 			const cacheSetStart = performance.now();
 			await measureAsync("cache.timeline.set", async () => {
