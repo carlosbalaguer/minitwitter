@@ -48,10 +48,15 @@ export default async function Timeline({ filter = "all" }: TimelineProps) {
 
 	return (
 		<div>
-			{/* Performance indicator (solo en dev) */}
+			{/* Performance indicator */}
 			{process.env.NODE_ENV === "development" && (
 				<div className="mb-4 p-2 bg-gray-100 rounded text-xs text-gray-600">
 					⚡ Query time: {queryTime}ms | Tweets: {tweets.length}
+					{filter === "following" && (
+						<span className="ml-2 text-green-600 font-medium">
+							(Pre-computed ✨)
+						</span>
+					)}
 				</div>
 			)}
 
