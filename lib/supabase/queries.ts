@@ -1,4 +1,5 @@
 import { measureAsync } from "@/lib/metrics";
+import { cacheKeys, cacheTTL, redis } from "@/lib/redis";
 import { SupabaseClient } from "@supabase/supabase-js";
 
 export async function getTimeline(
@@ -6,8 +7,44 @@ export async function getTimeline(
 	userId: string,
 	filter: "all" | "following"
 ) {
+	const totalStart = performance.now();
+
 	return measureAsync("db.timeline.query", async () => {
+		const cacheKey = cacheKeys.timeline(userId, filter);
+
+		// Try to get from cache first
+		const cacheStart = performance.now();
+		const cachedTimeline = await measureAsync(
+			"cache.timeline.get",
+			async () => {
+				try {
+					return await redis.get(cacheKey);
+				} catch (error) {
+					console.error("Redis error:", error);
+					return null;
+				}
+			}
+		);
+		const cacheTime = performance.now() - cacheStart;
+
+		if (cachedTimeline) {
+			const totalTime = performance.now() - totalStart;
+			console.log(
+				`✨ Cache HIT - Cache: ${cacheTime.toFixed(
+					0
+				)}ms | Total: ${totalTime.toFixed(0)}ms`
+			);
+			return cachedTimeline as any[];
+		}
+
+		const dbStart = performance.now();
+		console.log(`💾 Cache MISS - fetching from DB...`);
+
+		// Cache miss - fetch from database
+		let tweets: any[] = [];
+
 		if (filter === "following") {
+			// Use pre-computed timeline (FAST!)
 			const { data, error } = await supabase
 				.from("timelines")
 				.select(
@@ -34,7 +71,7 @@ export async function getTimeline(
 
 			if (error) throw error;
 
-			const tweets =
+			tweets =
 				data
 					?.map((item: any) => {
 						if (!item.tweets) return null;
@@ -48,8 +85,6 @@ export async function getTimeline(
 						};
 					})
 					.filter((tweet: any) => tweet !== null) || [];
-
-			return tweets;
 		} else {
 			const { data, error } = await supabase
 				.from("tweets")
@@ -63,8 +98,36 @@ export async function getTimeline(
 				.limit(50);
 
 			if (error) throw error;
-			return data || [];
+			tweets = data || [];
 		}
+
+		const dbTime = performance.now() - dbStart;
+
+		// Store in cache
+		const cacheSetStart = performance.now();
+		await measureAsync("cache.timeline.set", async () => {
+			try {
+				await redis.setex(
+					cacheKey,
+					cacheTTL.timeline,
+					JSON.stringify(tweets)
+				);
+			} catch (error) {
+				console.error("Redis set error:", error);
+			}
+		});
+		const cacheSetTime = performance.now() - cacheSetStart;
+
+		const totalTime = performance.now() - totalStart;
+		console.log(
+			`💾 Cache MISS - DB: ${dbTime.toFixed(
+				0
+			)}ms | Cache Set: ${cacheSetTime.toFixed(
+				0
+			)}ms | Total: ${totalTime.toFixed(0)}ms`
+		);
+
+		return tweets;
 	});
 }
 
@@ -83,6 +146,10 @@ export async function createTweet(
 			.select();
 
 		if (error) throw error;
+
+		await invalidateTimelineCache(userId);
+
+		await invalidateFollowersCache(supabase, userId);
 
 		return data;
 	});
@@ -111,6 +178,8 @@ export async function toggleFollow(
 
 			if (error) throw error;
 		}
+
+		await invalidateTimelineCache(followerId);
 	});
 }
 
@@ -137,4 +206,37 @@ export async function getSuggestedUsers(
 			),
 		};
 	});
+}
+
+async function invalidateTimelineCache(userId: string) {
+	try {
+		await redis.del(cacheKeys.timeline(userId, "all"));
+		await redis.del(cacheKeys.timeline(userId, "following"));
+		console.log("🗑️  Invalidated cache for user:", userId);
+	} catch (error) {
+		console.error("Error invalidating cache:", error);
+	}
+}
+
+async function invalidateFollowersCache(
+	supabase: SupabaseClient,
+	userId: string
+) {
+	try {
+		const { data: followers } = await supabase
+			.from("follows")
+			.select("follower_id")
+			.eq("following_id", userId);
+
+		if (!followers) return;
+
+		const promises = followers.map((f) =>
+			invalidateTimelineCache(f.follower_id)
+		);
+		await Promise.all(promises);
+
+		console.log(`🗑️  Invalidated cache for ${followers.length} followers`);
+	} catch (error) {
+		console.error("Error invalidating followers cache:", error);
+	}
 }
