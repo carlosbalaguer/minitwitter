@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
 		}
 
 		const body = await request.json();
-		const { follower_id, following_id, is_following } = body;
+		const { following_id, is_following } = body;
 
 		if (!following_id) {
 			return NextResponse.json(
@@ -27,14 +27,7 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
-		if (follower_id !== user.id) {
-			return NextResponse.json(
-				{ error: "Unauthorized" },
-				{ status: 403 }
-			);
-		}
-
-		await toggleFollow(supabase, follower_id, following_id, is_following);
+		await toggleFollow(supabase, user.id, following_id, is_following);
 
 		return NextResponse.json({ success: true });
 	} catch (error: any) {

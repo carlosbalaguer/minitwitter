@@ -1,87 +1,64 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 interface FollowButtonProps {
-	userId: string;
-	isFollowing: boolean;
+	followingId: string;
+	initialIsFollowing: boolean;
+	onFollowChange?: (isFollowing: boolean) => void;
 }
 
 export default function FollowButton({
-	userId,
-	isFollowing: initialIsFollowing,
+	followingId,
+	initialIsFollowing,
+	onFollowChange,
 }: FollowButtonProps) {
 	const [isFollowing, setIsFollowing] = useState(initialIsFollowing);
-	const [loading, setLoading] = useState(false);
+	const [isLoading, setIsLoading] = useState(false);
 
-	const router = useRouter();
-	const supabase = createClient();
-
-	const handleToggleFollow = async () => {
-		setLoading(true);
-
-		const startTime = performance.now();
+	const handleClick = async () => {
+		setIsLoading(true);
 
 		try {
-			const {
-				data: { user },
-			} = await supabase.auth.getUser();
-
-			if (!user) throw new Error("Not authenticated");
-
 			const response = await fetch("/api/follows", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+				},
 				body: JSON.stringify({
-					follower_id: user.id,
-					following_id: userId,
+					following_id: followingId,
 					is_following: isFollowing,
 				}),
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json();
-				throw new Error(errorData.error || "Failed to toggle follow");
+				throw new Error("Failed to toggle follow");
 			}
 
-			setIsFollowing(!isFollowing);
+			const newFollowingState = !isFollowing;
+			setIsFollowing(newFollowingState);
 
-			const duration = performance.now() - startTime;
-
-			// Send metric
-			fetch("/api/metrics", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					metric: `client.follow.${
-						isFollowing ? "unfollow" : "follow"
-					}`,
-					duration,
-					timestamp: new Date().toISOString(),
-				}),
-			}).catch(console.error);
-
-			router.refresh();
-		} catch (error: any) {
+			if (onFollowChange) {
+				onFollowChange(newFollowingState);
+			}
+		} catch (error) {
 			console.error("Error toggling follow:", error);
 		} finally {
-			setLoading(false);
+			setIsLoading(false);
 		}
 	};
 
 	return (
 		<button
-			onClick={handleToggleFollow}
-			disabled={loading}
-			className={`px-4 py-1.5 rounded-full font-medium text-sm transition-colors disabled:opacity-50 ${
+			onClick={handleClick}
+			disabled={isLoading}
+			className={`px-4 py-1 rounded-full font-semibold transition-colors ${
 				isFollowing
-					? "bg-gray-200 text-gray-900 hover:bg-gray-300"
+					? "bg-gray-200 text-gray-800 hover:bg-gray-300"
 					: "bg-blue-500 text-white hover:bg-blue-600"
-			}`}
+			} ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
 		>
-			{loading ? "Loading..." : isFollowing ? "Following" : "Follow"}
+			{isLoading ? "..." : isFollowing ? "Following" : "Follow"}
 		</button>
 	);
 }

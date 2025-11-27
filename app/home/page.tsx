@@ -1,9 +1,6 @@
 import LogoutButton from "@/components/auth/logout-button";
-import CreateTweet from "@/components/tweets/create-tweet";
-import Timeline from "@/components/tweets/timeline";
-import TimelineTabs from "@/components/tweets/timeline-tabs";
-import SuggestedUsers from "@/components/users/suggested-users";
-import { getTimeline } from "@/lib/supabase/queries";
+import HomeWrapper from "@/components/home/home-wrapper";
+import { getSuggestedUsers, getTimeline } from "@/lib/supabase/queries";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -63,6 +60,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		? null
 		: timelineData?.nextCursor || null;
 
+	const { profiles: suggestedProfiles, followingIds } =
+		await getSuggestedUsers(supabase, user.id);
+
 	const pageLoadTime = Date.now() - pageStartTime;
 
 	return (
@@ -99,22 +99,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 			)}
 
 			<main className="max-w-6xl mx-auto p-4">
-				<div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-					<div className="lg:col-span-2">
-						<CreateTweet />
-						<TimelineTabs />
-						<Timeline
-							initialTweets={tweets}
-							filter={filter}
-							hasMore={hasMore}
-							nextCursor={nextCursor}
-						/>
-					</div>
-
-					<div className="lg:col-span-1">
-						<SuggestedUsers />
-					</div>
-				</div>
+				<HomeWrapper
+					userId={user.id}
+					initialTweets={tweets}
+					filter={filter}
+					hasMore={hasMore}
+					nextCursor={nextCursor}
+					suggestedUsers={suggestedProfiles}
+					followingIds={followingIds}
+				/>
 			</main>
 		</div>
 	);

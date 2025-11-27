@@ -1,43 +1,48 @@
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
 import { Profile } from "@/types/database.types";
+import { useState } from "react";
 import FollowButton from "./follow-button";
 
-export default async function SuggestedUsers() {
-	const supabase = await createClient();
+interface SuggestedUsersProps {
+	initialProfiles: Profile[];
+	initialFollowingIds: Set<string>;
+}
 
-	const {
-		data: { user },
-	} = await supabase.auth.getUser();
+export default function SuggestedUsers({
+	initialProfiles,
+	initialFollowingIds,
+}: SuggestedUsersProps) {
+	const [profiles] = useState<Profile[]>(initialProfiles);
+	const [followingIds, setFollowingIds] =
+		useState<Set<string>>(initialFollowingIds);
 
-	if (!user) return null;
+	const handleFollowChange = (userId: string, isFollowing: boolean) => {
+		setFollowingIds((prev) => {
+			const newSet = new Set(prev);
+			if (isFollowing) {
+				newSet.delete(userId);
+			} else {
+				newSet.add(userId);
+			}
+			return newSet;
+		});
+	};
 
-	// Get users you're not following (excluding yourself)
-	const { data: profiles } = await supabase
-		.from("profiles")
-		.select("*")
-		.neq("id", user.id)
-		.limit(5);
+	// Filtrar usuarios que NO seguimos
+	const suggestedProfiles = profiles.filter(
+		(profile) => !followingIds.has(profile.id)
+	);
 
-	if (!profiles || profiles.length === 0) {
+	if (suggestedProfiles.length === 0) {
 		return null;
 	}
 
-	// Check which users you're already following
-	const { data: followingData } = await supabase
-		.from("follows")
-		.select("following_id")
-		.eq("follower_id", user.id);
-
-	const followingIds = new Set(
-		followingData?.map((f) => f.following_id) || []
-	);
-
 	return (
 		<div className="bg-white rounded-lg shadow-md p-4">
-			<h2 className="font-bold text-lg mb-4">Suggested Users</h2>
-
-			<div className="space-y-3">
-				{profiles.map((profile: Profile) => (
+			<h2 className="text-xl font-bold mb-4">Suggested Users</h2>
+			<div className="space-y-4">
+				{suggestedProfiles.map((profile) => (
 					<div
 						key={profile.id}
 						className="flex items-center justify-between"
@@ -47,18 +52,20 @@ export default async function SuggestedUsers() {
 								{profile.username[0].toUpperCase()}
 							</div>
 							<div>
-								<div className="font-medium text-gray-900">
+								<p className="font-semibold">
 									{profile.full_name || profile.username}
-								</div>
-								<div className="text-sm text-gray-500">
+								</p>
+								<p className="text-sm text-gray-500">
 									@{profile.username}
-								</div>
+								</p>
 							</div>
 						</div>
-
 						<FollowButton
-							userId={profile.id}
-							isFollowing={followingIds.has(profile.id)}
+							followingId={profile.id}
+							initialIsFollowing={followingIds.has(profile.id)}
+							onFollowChange={(isFollowing) =>
+								handleFollowChange(profile.id, isFollowing)
+							}
 						/>
 					</div>
 				))}
