@@ -1,38 +1,75 @@
-import { getTimeline } from "@/lib/supabase/queries";
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
 import { TweetWithProfile } from "@/types/database.types";
+import { useEffect, useRef, useState } from "react";
 import TweetCard from "./tweet-card";
 
 interface TimelineProps {
-	filter?: "all" | "following";
+	initialTweets: TweetWithProfile[];
+	filter: "all" | "following";
+	hasMore: boolean;
+	nextCursor: string | null;
 }
 
-export default async function Timeline({ filter = "all" }: TimelineProps) {
-	const supabase = await createClient();
+export default function Timeline({
+	initialTweets,
+	filter,
+	hasMore: initialHasMore,
+	nextCursor: initialCursor,
+}: TimelineProps) {
+	const [tweets, setTweets] = useState<TweetWithProfile[]>(initialTweets);
+	const [loading, setLoading] = useState(false);
+	const [hasMore, setHasMore] = useState(initialHasMore);
+	const [cursor, setCursor] = useState<string | null>(initialCursor);
+	const observerTarget = useRef<HTMLDivElement>(null);
 
-	const {
-		data: { user },
-	} = await supabase.auth.getUser();
+	const loadMore = async () => {
+		if (loading || !hasMore || !cursor) return;
 
-	if (!user) return null;
+		setLoading(true);
 
-	const startTime = Date.now();
+		try {
+			const encodedCursor = encodeURIComponent(cursor);
 
-	let tweets: any[] = [];
-	let error = null;
+			const response = await fetch(
+				`/api/timeline?filter=${filter}&cursor=${encodedCursor}&limit=20`
+			);
+			const data = await response.json();
 
-	try {
-		tweets = await getTimeline(supabase, user.id, filter);
-	} catch (e: any) {
-		error = e;
-	}
+			if (data.tweets) {
+				setTweets((prev) => [...prev, ...data.tweets]);
+				setHasMore(data.hasMore);
+				setCursor(data.nextCursor);
+			}
+		} catch (error) {
+			console.error("Error loading more tweets:", error);
+		} finally {
+			setLoading(false);
+		}
+	};
 
-	const queryTime = Date.now() - startTime;
+	useEffect(() => {
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries[0].isIntersecting && hasMore && !loading) {
+					loadMore();
+				}
+			},
+			{ threshold: 1.0 }
+		);
 
-	if (error) {
-		console.error("Error fetching tweets:", error);
-		return <div>Error loading timeline</div>;
-	}
+		if (observerTarget.current) {
+			observer.observe(observerTarget.current);
+		}
+
+		return () => observer.disconnect();
+	}, [hasMore, loading, cursor]);
+
+	useEffect(() => {
+		setTweets(initialTweets);
+		setHasMore(initialHasMore);
+		setCursor(initialCursor);
+	}, [filter, initialTweets, initialHasMore, initialCursor]);
 
 	if (!tweets || tweets.length === 0) {
 		return (
@@ -46,30 +83,31 @@ export default async function Timeline({ filter = "all" }: TimelineProps) {
 		);
 	}
 
-	const isCached = queryTime < 100; // Heuristic: if < 100ms, likely cached
-
 	return (
 		<div>
-			{/* Performance indicator */}
-			{process.env.NODE_ENV === "development" && (
-				<div className="mb-4 p-2 bg-gray-100 rounded text-xs text-gray-600">
-					⚡ Query time: {queryTime}ms | Tweets: {tweets.length}
-					{filter === "following" && (
-						<span className="ml-2 text-green-600 font-medium">
-							(Pre-computed ✨)
-						</span>
-					)}
-					{isCached && (
-						<span className="ml-2 text-blue-600 font-medium">
-							(Cached 🚀)
-						</span>
+			{tweets.map((tweet) => (
+				<TweetCard key={tweet.id} tweet={tweet} />
+			))}
+
+			{hasMore && (
+				<div ref={observerTarget} className="py-4 text-center">
+					{loading ? (
+						<div className="text-gray-500">
+							Loading more tweets...
+						</div>
+					) : (
+						<div className="text-gray-400 text-sm">
+							Scroll for more
+						</div>
 					)}
 				</div>
 			)}
 
-			{tweets.map((tweet) => (
-				<TweetCard key={tweet.id} tweet={tweet as TweetWithProfile} />
-			))}
+			{!hasMore && tweets.length > 0 && (
+				<div className="py-4 text-center text-gray-400 text-sm">
+					You've reached the end!
+				</div>
+			)}
 		</div>
 	);
 }

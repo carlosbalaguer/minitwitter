@@ -3,6 +3,7 @@ import CreateTweet from "@/components/tweets/create-tweet";
 import Timeline from "@/components/tweets/timeline";
 import TimelineTabs from "@/components/tweets/timeline-tabs";
 import SuggestedUsers from "@/components/users/suggested-users";
+import { getTimeline } from "@/lib/supabase/queries";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -44,6 +45,24 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 	const params = await searchParams;
 	const filter = (params.filter || "all") as "all" | "following";
 
+	const timelineData = await getTimeline(
+		supabase,
+		user.id,
+		filter,
+		undefined,
+		20
+	);
+
+	const tweets = Array.isArray(timelineData)
+		? timelineData
+		: timelineData?.tweets || [];
+	const hasMore = Array.isArray(timelineData)
+		? false
+		: timelineData?.hasMore || false;
+	const nextCursor = Array.isArray(timelineData)
+		? null
+		: timelineData?.nextCursor || null;
+
 	const pageLoadTime = Date.now() - pageStartTime;
 
 	return (
@@ -84,7 +103,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 					<div className="lg:col-span-2">
 						<CreateTweet />
 						<TimelineTabs />
-						<Timeline filter={filter} />
+						<Timeline
+							initialTweets={tweets}
+							filter={filter}
+							hasMore={hasMore}
+							nextCursor={nextCursor}
+						/>
 					</div>
 
 					<div className="lg:col-span-1">

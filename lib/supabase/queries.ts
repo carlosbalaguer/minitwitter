@@ -5,36 +5,40 @@ import { SupabaseClient } from "@supabase/supabase-js";
 export async function getTimeline(
 	supabase: SupabaseClient,
 	userId: string,
-	filter: "all" | "following"
+	filter: "all" | "following",
+	cursor?: string,
+	limit: number = 20
 ) {
 	const totalStart = performance.now();
 
 	return measureAsync("db.timeline.query", async () => {
+		const shouldCache = !cursor;
 		const cacheKey = cacheKeys.timeline(userId, filter);
 
-		// Try to get from cache first
-		const cacheStart = performance.now();
-		const cachedTimeline = await measureAsync(
-			"cache.timeline.get",
-			async () => {
-				try {
-					return await redis.get(cacheKey);
-				} catch (error) {
-					console.error("Redis error:", error);
-					return null;
+		if (shouldCache) {
+			const cacheStart = performance.now();
+			const cachedTimeline = await measureAsync(
+				"cache.timeline.get",
+				async () => {
+					try {
+						return await redis.get(cacheKey);
+					} catch (error) {
+						console.error("Redis error:", error);
+						return null;
+					}
 				}
-			}
-		);
-		const cacheTime = performance.now() - cacheStart;
-
-		if (cachedTimeline) {
-			const totalTime = performance.now() - totalStart;
-			console.log(
-				`✨ Cache HIT - Cache: ${cacheTime.toFixed(
-					0
-				)}ms | Total: ${totalTime.toFixed(0)}ms`
 			);
-			return cachedTimeline as any[];
+			const cacheTime = performance.now() - cacheStart;
+
+			if (cachedTimeline) {
+				const totalTime = performance.now() - totalStart;
+				console.log(
+					`✨ Cache HIT - Cache: ${cacheTime.toFixed(
+						0
+					)}ms | Total: ${totalTime.toFixed(0)}ms`
+				);
+				return cachedTimeline as any;
+			}
 		}
 
 		const dbStart = performance.now();
@@ -45,11 +49,12 @@ export async function getTimeline(
 
 		if (filter === "following") {
 			// Use pre-computed timeline (FAST!)
-			const { data, error } = await supabase
+			let query = supabase
 				.from("timelines")
 				.select(
 					`
           tweet_id,
+          created_at,
           tweets (
             id,
             content,
@@ -67,7 +72,13 @@ export async function getTimeline(
 				)
 				.eq("user_id", userId)
 				.order("created_at", { ascending: false })
-				.limit(50);
+				.limit(limit);
+
+			if (cursor) {
+				query = query.lt("created_at", cursor);
+			}
+
+			const { data, error } = await query;
 
 			if (error) throw error;
 
@@ -86,7 +97,7 @@ export async function getTimeline(
 					})
 					.filter((tweet: any) => tweet !== null) || [];
 		} else {
-			const { data, error } = await supabase
+			let query = supabase
 				.from("tweets")
 				.select(
 					`
@@ -95,7 +106,13 @@ export async function getTimeline(
         `
 				)
 				.order("created_at", { ascending: false })
-				.limit(50);
+				.limit(limit);
+
+			if (cursor) {
+				query = query.lt("created_at", cursor);
+			}
+
+			const { data, error } = await query;
 
 			if (error) throw error;
 			tweets = data || [];
@@ -104,30 +121,44 @@ export async function getTimeline(
 		const dbTime = performance.now() - dbStart;
 
 		// Store in cache
-		const cacheSetStart = performance.now();
-		await measureAsync("cache.timeline.set", async () => {
-			try {
-				await redis.setex(
-					cacheKey,
-					cacheTTL.timeline,
-					JSON.stringify(tweets)
-				);
-			} catch (error) {
-				console.error("Redis set error:", error);
-			}
-		});
-		const cacheSetTime = performance.now() - cacheSetStart;
+		if (shouldCache) {
+			const cacheSetStart = performance.now();
+			await measureAsync("cache.timeline.set", async () => {
+				try {
+					await redis.setex(
+						cacheKey,
+						cacheTTL.timeline,
+						JSON.stringify({
+							tweets,
+							hasMore: tweets.length === limit,
+							nextCursor:
+								tweets.length > 0
+									? tweets[tweets.length - 1].created_at
+									: null,
+						})
+					);
+				} catch (error) {
+					console.error("Redis set error:", error);
+				}
+			});
+			const cacheSetTime = performance.now() - cacheSetStart;
 
-		const totalTime = performance.now() - totalStart;
-		console.log(
-			`💾 Cache MISS - DB: ${dbTime.toFixed(
-				0
-			)}ms | Cache Set: ${cacheSetTime.toFixed(
-				0
-			)}ms | Total: ${totalTime.toFixed(0)}ms`
-		);
+			const totalTime = performance.now() - totalStart;
+			console.log(
+				`💾 Cache MISS - DB: ${dbTime.toFixed(
+					0
+				)}ms | Cache Set: ${cacheSetTime.toFixed(
+					0
+				)}ms | Total: ${totalTime.toFixed(0)}ms`
+			);
+		}
 
-		return tweets;
+		return {
+			tweets,
+			hasMore: tweets.length === limit,
+			nextCursor:
+				tweets.length > 0 ? tweets[tweets.length - 1].created_at : null,
+		};
 	});
 }
 
@@ -234,8 +265,6 @@ async function invalidateFollowersCache(
 			invalidateTimelineCache(f.follower_id)
 		);
 		await Promise.all(promises);
-
-		console.log(`🗑️  Invalidated cache for ${followers.length} followers`);
 	} catch (error) {
 		console.error("Error invalidating followers cache:", error);
 	}
