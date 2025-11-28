@@ -1,71 +1,49 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { trackTweetCreate } from "@/lib/analytics";
 import { useState } from "react";
 
 export default function CreateTweet() {
 	const [content, setContent] = useState("");
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	const router = useRouter();
-	const supabase = createClient();
+	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 
-		if (!content.trim()) return;
+		if (!content.trim() || content.length > 280) return;
 
-		setLoading(true);
-		setError(null);
-
-		const startTime = performance.now();
+		setIsSubmitting(true);
 
 		try {
-			const {
-				data: { user },
-			} = await supabase.auth.getUser();
-
-			if (!user) throw new Error("Not authenticated");
-
 			const response = await fetch("/api/tweets", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					content: content.trim(),
-					user_id: user.id,
-				}),
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ content: content.trim() }),
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json();
-				throw new Error(errorData.error || "Failed to create tweet");
+				throw new Error("Failed to create tweet");
 			}
 
-			const duration = performance.now() - startTime;
+			const data = await response.json();
 
-			// Send metric
-			fetch("/api/metrics", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					metric: "client.tweet.create",
-					duration,
-					timestamp: new Date().toISOString(),
-				}),
-			}).catch(console.error);
+			// Track tweet creation
+			if (data.tweet?.[0]?.id) {
+				trackTweetCreate(data.tweet[0].id, content.trim().length);
+			}
 
 			setContent("");
-			router.refresh();
-		} catch (error: any) {
-			setError(error.message);
+			window.location.reload();
+		} catch (error) {
+			console.error("Error creating tweet:", error);
 		} finally {
-			setLoading(false);
+			setIsSubmitting(false);
 		}
 	};
 
-	const charactersLeft = 280 - content.length;
+	const remainingChars = 280 - content.length;
 
 	return (
 		<div className="bg-white rounded-lg shadow-md p-4 mb-6">
@@ -74,35 +52,32 @@ export default function CreateTweet() {
 					value={content}
 					onChange={(e) => setContent(e.target.value)}
 					placeholder="What's happening?"
-					className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+					className="w-full p-3 border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
 					rows={3}
 					maxLength={280}
-					disabled={loading}
 				/>
-
-				{error && (
-					<div className="mt-2 text-red-500 text-sm">{error}</div>
-				)}
 
 				<div className="flex items-center justify-between mt-3">
 					<span
 						className={`text-sm ${
-							charactersLeft < 20
+							remainingChars < 20
 								? "text-red-500"
 								: "text-gray-500"
 						}`}
 					>
-						{charactersLeft} characters left
+						{remainingChars} characters left
 					</span>
 
 					<button
 						type="submit"
 						disabled={
-							loading || !content.trim() || content.length > 280
+							!content.trim() ||
+							isSubmitting ||
+							content.length > 280
 						}
-						className="bg-blue-500 text-white px-6 py-2 rounded-full font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+						className="px-6 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
 					>
-						{loading ? "Posting..." : "Tweet"}
+						{isSubmitting ? "Tweeting..." : "Tweet"}
 					</button>
 				</div>
 			</form>

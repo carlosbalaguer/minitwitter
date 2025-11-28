@@ -1,5 +1,6 @@
 import { TweetWithProfile } from "@/types/database.types";
 import { formatDistanceToNow } from "date-fns";
+import TweetInteractionTracker from "./tweet-interaction-tracker";
 
 export default function TweetCard({ tweet }: { tweet: TweetWithProfile }) {
 	const timeAgo = formatDistanceToNow(new Date(tweet.created_at), {
@@ -8,6 +9,11 @@ export default function TweetCard({ tweet }: { tweet: TweetWithProfile }) {
 
 	return (
 		<div className="bg-white rounded-lg shadow-md p-4 mb-4 hover:shadow-lg transition-shadow">
+			<TweetInteractionTracker
+				tweetId={tweet.id}
+				tweetAuthor={tweet.profiles.username}
+			/>
+
 			<div className="flex items-start space-x-3">
 				<div className="shrink-0">
 					<div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-lg relative">

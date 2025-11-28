@@ -66,6 +66,7 @@ export default function SuggestedUsers({
 							onFollowChange={(isFollowing) =>
 								handleFollowChange(profile.id, isFollowing)
 							}
+							username={profile.username}
 						/>
 					</div>
 				))}

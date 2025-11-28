@@ -1,17 +1,20 @@
 "use client";
 
+import { trackFollow, trackUnfollow } from "@/lib/analytics";
 import { useState } from "react";
 
 interface FollowButtonProps {
 	followingId: string;
 	initialIsFollowing: boolean;
 	onFollowChange?: (isFollowing: boolean) => void;
+	username?: string;
 }
 
 export default function FollowButton({
 	followingId,
 	initialIsFollowing,
 	onFollowChange,
+	username,
 }: FollowButtonProps) {
 	const [isFollowing, setIsFollowing] = useState(initialIsFollowing);
 	const [isLoading, setIsLoading] = useState(false);
@@ -37,6 +40,14 @@ export default function FollowButton({
 
 			const newFollowingState = !isFollowing;
 			setIsFollowing(newFollowingState);
+
+			if (username) {
+				if (newFollowingState) {
+					trackFollow(followingId, username);
+				} else {
+					trackUnfollow(followingId, username);
+				}
+			}
 
 			if (onFollowChange) {
 				onFollowChange(newFollowingState);

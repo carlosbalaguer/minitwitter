@@ -1,3 +1,4 @@
+import PageViewTracker from "@/components/analytics/page-view-tracker";
 import LogoutButton from "@/components/auth/logout-button";
 import HomeWrapper from "@/components/home/home-wrapper";
 import { getSuggestedUsers, getTimeline } from "@/lib/supabase/queries";
@@ -67,6 +68,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
 	return (
 		<div className="min-h-screen bg-gray-50">
+			<PageViewTracker page="home" filter={filter} />
+
 			<header className="bg-white shadow-sm sticky top-0 z-10">
 				<div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
 					<div className="flex items-center space-x-6">
